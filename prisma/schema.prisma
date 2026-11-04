@@ -1,0 +1,808 @@
+// ============================================================
+// ACLC LabPulse - Prisma Database Schema
+// Target Institution: ACLC College of Manila
+// College of Computer Studies / IT Department
+// ============================================================
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearchPostgres"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ------------------------------------------------------------
+// 1. AUTHENTICATION & ACCESS CONTROL (RBAC)
+// ------------------------------------------------------------
+
+enum Role {
+  SUPER_ADMIN
+  LAB_HEAD
+  TECHNICIAN
+  CUSTODIAN
+  FACULTY
+  STUDENT_ASSISTANT
+}
+
+model User {
+  id               String   @id @default(uuid())
+  email            String   @unique
+  passwordHash     String
+  fullName         String
+  employeeId       String   @unique
+  role             Role     @default(FACULTY)
+  department       String   @default("College of Computer Studies")
+  phoneNumber      String?
+  avatarUrl        String?
+  isActive         Boolean  @default(true)
+  lastLoginAt      DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relational mappings
+  assignedSchedules      LabSchedule[]
+  auditedAssets          Asset[]                 @relation("AssetAuditor")
+  assetAuditLogs         AssetAuditLog[]         @relation("AuditPerformer")
+  consumableTransactions ConsumableTransaction[] @relation("RecordedTransactions")
+  issuedToFaculty        ConsumableTransaction[] @relation("IssuedToFaculty")
+  reportedTickets        MaintenanceTicket[]     @relation("TicketReporter")
+  assignedTickets        MaintenanceTicket[]     @relation("TicketAssignee")
+  ticketActivities       TicketActivity[]
+  assignedPreventive     PreventiveSchedule[]    @relation("PreventiveAssignee")
+  purchaseRequests       PurchaseRequest[]       @relation("PRRequester")
+  endorsedPRs            PurchaseRequest[]       @relation("PREndorser")
+  approvedPRs            PurchaseRequest[]       @relation("PRApprover")
+  approvedBorrowings     BorrowingRequest[]      @relation("BorrowingApprover")
+  releasedBorrowings     BorrowingRequest[]      @relation("BorrowingReleaser")
+  receivedBorrowings     BorrowingRequest[]      @relation("BorrowingReceiver")
+  requestedGatePasses    GatePass[]              @relation("GatePassRequester")
+  endorsedGatePasses     GatePass[]              @relation("GatePassEndorser")
+  approvedGatePasses     GatePass[]              @relation("GatePassApprover")
+
+  @@index([role])
+  @@index([employeeId])
+  @@index([department])
+  @@map("users")
+}
+
+// ------------------------------------------------------------
+// 2. LABORATORY INFRASTRUCTURE & TIMETABLE
+// ------------------------------------------------------------
+
+enum LabStatus {
+  ACTIVE
+  MAINTENANCE
+  OFFLINE
+  RESTRICTED
+}
+
+model Laboratory {
+  id             String    @id @default(uuid())
+  code           String    @unique // e.g., "LAB-1", "LAB-2", "CISCO-LAB"
+  name           String    // e.g., "Multimedia & Software Engineering Lab"
+  building       String    @default("Main Academic Building")
+  floor          String    @default("3rd Floor")
+  roomNumber     String    // e.g., "Room 304"
+  capacity       Int       @default(45)
+  gridRows       Int       @default(6)  // For visual floor plan grid rows
+  gridCols       Int       @default(8)  // For visual floor plan grid columns
+  ipSubnet       String?   // e.g., "192.168.10.0/24"
+  defaultGateway String?   // e.g., "192.168.10.1"
+  status         LabStatus @default(ACTIVE)
+  notes          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  // Relational mappings
+  assets              Asset[]
+  schedules           LabSchedule[]
+  maintenanceTickets  MaintenanceTicket[]
+  preventiveSchedules PreventiveSchedule[]
+
+  @@index([status])
+  @@index([code])
+  @@map("laboratories")
+}
+
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+model LabSchedule {
+  id           String     @id @default(uuid())
+  labId        String
+  dayOfWeek    DayOfWeek
+  startTime    String     // Format: "HH:mm" 24h, e.g., "08:00"
+  endTime      String     // Format: "HH:mm" 24h, e.g., "11:00"
+  subjectCode  String     // e.g., "CC103", "IT401"
+  subjectTitle String     // e.g., "Data Structures & Algorithms"
+  section      String     // e.g., "BSIT-2A"
+  facultyId    String
+  schoolTerm   String     @default("1st Trimester")
+  academicYear String     @default("2026-2027")
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  laboratory Laboratory @relation(fields: [labId], references: [id], onDelete: Cascade)
+  faculty    User       @relation(fields: [facultyId], references: [id], onDelete: Restrict)
+
+  @@index([labId, dayOfWeek])
+  @@index([facultyId])
+  @@index([academicYear, schoolTerm])
+  @@map("lab_schedules")
+}
+
+// ------------------------------------------------------------
+// 3. IT ASSET MANAGEMENT & HARDWARE SPECS
+// ------------------------------------------------------------
+
+enum AssetCategory {
+  WORKSTATION
+  SERVER
+  MONITOR
+  NETWORKING_SWITCH
+  ROUTER
+  ACCESS_POINT
+  UPS
+  PROJECTOR
+  PRINTER_SCANNER
+  PERIPHERAL
+}
+
+enum AssetStatus {
+  OPERATIONAL
+  DEGRADED
+  UNDER_MAINTENANCE
+  BORROWED
+  PULLED_OUT
+  FOR_DISPOSAL
+  DECOMMISSIONED
+  LOST
+}
+
+enum AssetCondition {
+  EXCELLENT
+  GOOD
+  FAIR
+  POOR
+  DAMAGED
+}
+
+model Asset {
+  id             String         @id @default(uuid())
+  assetTag       String         @unique // Barcode/QR institutional tag: "ACLC-MNL-LAB1-WS01"
+  serialNumber   String         @unique
+  barcode        String?        @unique
+  category       AssetCategory  @default(WORKSTATION)
+  name           String         // e.g., "Student Workstation 01"
+  brand          String         // e.g., "Dell", "HP", "Custom Build"
+  model          String?        // e.g., "OptiPlex 7090"
+  
+  // Placement within laboratory grid
+  labId          String?
+  gridRow        Int?           // 0-indexed row coordinate on laboratory floor
+  gridCol        Int?           // 0-indexed col coordinate on laboratory floor
+  
+  status         AssetStatus    @default(OPERATIONAL)
+  condition      AssetCondition @default(GOOD)
+  
+  // Network identity
+  ipAddress      String?
+  macAddress     String?        @unique
+  hostname       String?        @unique
+  osVersion      String?
+  
+  // Financial & procurement
+  purchaseDate   DateTime?
+  purchaseCost   Decimal?       @db.Decimal(12, 2)
+  warrantyExpiry DateTime?
+  supplierId     String?
+  purchaseOrderId String?
+  notes          String?
+  
+  // Auditing
+  lastAuditedAt  DateTime?
+  auditedById    String?
+  
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  // Relational mappings
+  laboratory         Laboratory?         @relation(fields: [labId], references: [id], onDelete: SetNull)
+  supplier           Supplier?           @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  purchaseOrder      PurchaseOrder?      @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
+  auditedBy          User?               @relation("AssetAuditor", fields: [auditedById], references: [id], onDelete: SetNull)
+  hardwareSpec       HardwareSpec?
+  auditLogs          AssetAuditLog[]
+  maintenanceTickets MaintenanceTicket[]
+  borrowingItems     BorrowingItem[]
+  gatePassItems      GatePassItem[]
+  discoveryLogs      DiscoveryLog[]
+
+  @@index([assetTag])
+  @@index([serialNumber])
+  @@index([macAddress])
+  @@index([hostname])
+  @@index([labId, status])
+  @@index([category, status])
+  @@map("assets")
+}
+
+model HardwareSpec {
+  id                String   @id @default(uuid())
+  assetId           String   @unique
+  cpuProcessor      String   // e.g., "Intel Core i7-12700 / 12 Cores 2.1GHz"
+  cpuCores          Int      @default(8)
+  ramCapacityGb     Int      @default(16) // Total RAM in GB
+  ramType           String   @default("DDR4") // "DDR4", "DDR5"
+  storageType       String   @default("NVMe SSD") // "NVMe SSD", "SATA SSD", "HDD"
+  storageCapacityGb Int      @default(512)
+  secondaryStorage  String?  // e.g., "1TB Seagate Barracuda 7200RPM HDD"
+  gpuModel          String?  // e.g., "NVIDIA GeForce GTX 1660 Super"
+  gpuVramGb         Int?     @default(0)
+  motherboard       String?  // e.g., "ASUS Prime B660M-A"
+  psuWattage        Int?     @default(550)
+  formFactor        String   @default("Tower") // "Tower", "SFF", "All-In-One", "Rackmount"
+  biosVersion       String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([ramCapacityGb])
+  @@index([storageType])
+  @@map("hardware_specs")
+}
+
+enum AuditAction {
+  STATUS_CHANGE
+  LOCATION_TRANSFER
+  SPEC_MODIFICATION
+  COMPONENT_SWAP
+  REPAIR_COMPLETED
+  DISCOVERY_SYNC
+  DECOMMISSION
+}
+
+model AssetAuditLog {
+  id             String      @id @default(uuid())
+  assetId        String
+  actionType     AuditAction
+  previousValues Json?       // Snapshot of fields before change
+  newValues      Json?       // Snapshot of fields after change
+  performedById  String?
+  remarks        String?
+  createdAt      DateTime    @default(now())
+
+  asset       Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  performedBy User? @relation("AuditPerformer", fields: [performedById], references: [id], onDelete: SetNull)
+
+  @@index([assetId, createdAt])
+  @@index([actionType])
+  @@map("asset_audit_logs")
+}
+
+// ------------------------------------------------------------
+// 4. INVENTORY & CONSUMABLES MANAGEMENT
+// ------------------------------------------------------------
+
+enum ConsumableCategory {
+  CABLE_UTP_CAT6
+  RJ45_CONNECTORS
+  KEYBOARD_MEMBRANE
+  KEYBOARD_MECHANICAL
+  OPTICAL_MOUSE
+  THERMAL_PASTE
+  CMOS_CR2032
+  PATCH_CORDS
+  HDMI_VGA_ADAPTERS
+  POWER_CORDS
+  RAM_MODULE
+  SSD_STORAGE
+  CLEANING_CHEMICALS
+  TOOLKIT_SUPPLIES
+}
+
+enum UnitOfMeasure {
+  PIECES
+  BOXES
+  METERS
+  ROLLS
+  TUBES
+  PACKS
+  SETS
+}
+
+model Consumable {
+  id              String             @id @default(uuid())
+  sku             String             @unique // e.g., "CON-RJ45-CAT6-01"
+  name            String             // e.g., "AMP Cat6 Unshielded RJ45 Modular Plugs"
+  category        ConsumableCategory
+  description     String?
+  unit            UnitOfMeasure      @default(PIECES)
+  stockQuantity   Int                @default(0)
+  minThreshold    Int                @default(20) // Alert trigger limit
+  reorderQuantity Int                @default(100)
+  unitCost        Decimal?           @db.Decimal(10, 2)
+  storageLocation String             // e.g., "IT Custodian Room, Cabinet B, Bin 4"
+  supplierId      String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  supplier       Supplier?               @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  transactions   ConsumableTransaction[]
+  borrowingItems BorrowingItem[]
+
+  @@index([sku])
+  @@index([category])
+  @@index([stockQuantity, minThreshold])
+  @@map("consumables")
+}
+
+enum ConsumableTransactionType {
+  RESTOCK
+  ISSUANCE_MAINTENANCE
+  ISSUANCE_FACULTY
+  DEFECTIVE_WRITE_OFF
+  INVENTORY_AUDIT_ADJUSTMENT
+}
+
+model ConsumableTransaction {
+  id                String                    @id @default(uuid())
+  consumableId      String
+  transactionType   ConsumableTransactionType
+  quantity          Int                       // Positive value deducted or added
+  balanceAfter      Int                       // Stock level immediately following transaction
+  referenceTicketId String?
+  issuedToFacultyId String?
+  recordedById      String?
+  notes             String?
+  createdAt         DateTime                  @default(now())
+
+  consumable      Consumable         @relation(fields: [consumableId], references: [id], onDelete: Restrict)
+  referenceTicket MaintenanceTicket? @relation(fields: [referenceTicketId], references: [id], onDelete: SetNull)
+  issuedTo        User?              @relation("IssuedToFaculty", fields: [issuedToFacultyId], references: [id], onDelete: SetNull)
+  recordedBy      User?              @relation("RecordedTransactions", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  @@index([consumableId, createdAt])
+  @@index([transactionType])
+  @@map("consumable_transactions")
+}
+
+// ------------------------------------------------------------
+// 5. MAINTENANCE SCHEDULING & CORRECTIVE TICKETING
+// ------------------------------------------------------------
+
+enum TicketPriority {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum TicketStatus {
+  OPEN
+  TRIAGED
+  ASSIGNED
+  IN_PROGRESS
+  WAITING_FOR_PARTS
+  RESOLVED
+  CLOSED
+  CANCELLED
+}
+
+enum TicketCategory {
+  HARDWARE_FAILURE
+  SOFTWARE_OS
+  NETWORK_OFFLINE
+  POWER_ELECTRICAL
+  PERIPHERAL_DEFECT
+  ROUTINE_PREVENTIVE
+  PHYSICAL_DAMAGE
+}
+
+model MaintenanceTicket {
+  id               String         @id @default(uuid())
+  ticketNumber     String         @unique // e.g., "TKT-2026-0089"
+  title            String
+  description      String
+  labId            String
+  assetId          String?
+  priority         TicketPriority @default(MEDIUM)
+  status           TicketStatus   @default(OPEN)
+  issueCategory    TicketCategory @default(HARDWARE_FAILURE)
+  
+  reportedById     String
+  assignedToId     String?
+  
+  rootCause        String?
+  correctiveAction String?
+  downtimeMinutes  Int?           @default(0)
+  
+  resolvedAt       DateTime?
+  closedAt         DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  laboratory             Laboratory              @relation(fields: [labId], references: [id], onDelete: Restrict)
+  asset                  Asset?                  @relation(fields: [assetId], references: [id], onDelete: SetNull)
+  reportedBy             User                    @relation("TicketReporter", fields: [reportedById], references: [id], onDelete: Restrict)
+  assignedTo             User?                   @relation("TicketAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  activities             TicketActivity[]
+  consumableTransactions ConsumableTransaction[]
+
+  @@index([ticketNumber])
+  @@index([status, priority])
+  @@index([labId, status])
+  @@index([assetId])
+  @@index([assignedToId])
+  @@map("maintenance_tickets")
+}
+
+model TicketActivity {
+  id               String    @id @default(uuid())
+  ticketId         String
+  loggedById       String
+  comment          String
+  statusChangeFrom TicketStatus?
+  statusChangeTo   TicketStatus?
+  isInternalOnly   Boolean   @default(false)
+  attachmentsJson  Json?     // Array of URLs or metadata
+  createdAt        DateTime  @default(now())
+
+  ticket   MaintenanceTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  loggedBy User              @relation(fields: [loggedById], references: [id], onDelete: Restrict)
+
+  @@index([ticketId, createdAt])
+  @@map("ticket_activities")
+}
+
+enum MaintenanceFrequency {
+  DAILY
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+  SEMESTRAL
+  ANNUAL
+}
+
+model PreventiveSchedule {
+  id               String               @id @default(uuid())
+  title            String               // e.g., "Monthly Lab 1 Deep Blower & Dust Cleaning"
+  labId            String
+  frequency        MaintenanceFrequency @default(MONTHLY)
+  checklistJson    Json                 // Checklist items with steps
+  assignedToId     String?
+  nextDueDate      DateTime
+  lastExecutedDate DateTime?
+  isActive         Boolean              @default(true)
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  laboratory Laboratory @relation(fields: [labId], references: [id], onDelete: Cascade)
+  assignedTo User?      @relation("PreventiveAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  @@index([labId, isActive])
+  @@index([nextDueDate])
+  @@map("preventive_schedules")
+}
+
+// ------------------------------------------------------------
+// 6. PROCUREMENT, SUPPLIERS, & WARRANTY TRACKING
+// ------------------------------------------------------------
+
+model Supplier {
+  id                      String    @id @default(uuid())
+  companyName             String
+  contactPerson           String?
+  email                   String?
+  phone                   String?
+  address                 String?
+  taxIdentificationNumber String?
+  paymentTerms            String?   @default("30 Days Net")
+  rating                  Int?      @default(5)
+  isActive                Boolean   @default(true)
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  assets         Asset[]
+  consumables    Consumable[]
+  purchaseOrders PurchaseOrder[]
+
+  @@index([companyName])
+  @@map("suppliers")
+}
+
+enum PRStatus {
+  DRAFT
+  SUBMITTED
+  ENDORSED_BY_HEAD
+  APPROVED_BY_DIRECTOR
+  PO_GENERATED
+  REJECTED
+  CANCELLED
+}
+
+model PurchaseRequest {
+  id                   String    @id @default(uuid())
+  prNumber             String    @unique // e.g., "PR-2026-0012"
+  requestedById        String
+  department           String    @default("College of Computer Studies")
+  purpose              String
+  estimatedTotal       Decimal   @db.Decimal(12, 2)
+  status               PRStatus  @default(DRAFT)
+  rejectionReason      String?
+  
+  endorsedByHeadId     String?
+  approvedByDirectorId String?
+  approvedAt           DateTime?
+  
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  requestedBy        User            @relation("PRRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  endorsedByHead     User?           @relation("PREndorser", fields: [endorsedByHeadId], references: [id], onDelete: SetNull)
+  approvedByDirector User?           @relation("PRApprover", fields: [approvedByDirectorId], references: [id], onDelete: SetNull)
+  purchaseOrders     PurchaseOrder[]
+
+  @@index([prNumber])
+  @@index([status])
+  @@map("purchase_requests")
+}
+
+enum POStatus {
+  PENDING_DELIVERY
+  PARTIAL_DELIVERY
+  FULFILLED
+  CANCELLED
+}
+
+model PurchaseOrder {
+  id                   String    @id @default(uuid())
+  poNumber             String    @unique // e.g., "PO-2026-0008"
+  prId                 String
+  supplierId           String
+  orderDate            DateTime  @default(now())
+  expectedDeliveryDate DateTime?
+  actualDeliveryDate   DateTime?
+  totalAmount          Decimal   @db.Decimal(12, 2)
+  status               POStatus  @default(PENDING_DELIVERY)
+  invoiceNumber        String?
+  notes                String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  purchaseRequest PurchaseRequest @relation(fields: [prId], references: [id], onDelete: Restrict)
+  supplier        Supplier        @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  assets          Asset[]
+
+  @@index([poNumber])
+  @@index([status])
+  @@map("purchase_orders")
+}
+
+// ------------------------------------------------------------
+// 7. EQUIPMENT BORROWING & GATE PASS / PROPERTY PULL-OUT
+// ------------------------------------------------------------
+
+enum BorrowerType {
+  FACULTY
+  STUDENT_ORG
+  ADMIN_STAFF
+  ACCREDITED_GUEST
+}
+
+enum BorrowingStatus {
+  PENDING_APPROVAL
+  APPROVED
+  RELEASED
+  RETURNED_GOOD
+  RETURNED_DAMAGED
+  OVERDUE
+  REJECTED
+  CANCELLED
+}
+
+model BorrowingRequest {
+  id                    String          @id @default(uuid())
+  requestNumber         String          @unique // e.g., "BRW-2026-0045"
+  borrowerType          BorrowerType    @default(FACULTY)
+  borrowerName          String
+  borrowerIdNumber      String          // Institutional ID
+  borrowerEmail         String
+  borrowerPhone         String?
+  department            String          @default("College of Computer Studies")
+  purpose               String
+  intendedRoom          String?         // Where the equipment will be used
+  expectedBorrowDate    DateTime
+  expectedReturnDate    DateTime
+  actualReturnDate      DateTime?
+  status                BorrowingStatus @default(PENDING_APPROVAL)
+  remarks               String?
+  returnConditionNotes  String?
+  
+  approvedById          String?
+  releasedById          String?
+  receivedBackById      String?
+  
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  approvedBy   User?           @relation("BorrowingApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  releasedBy   User?           @relation("BorrowingReleaser", fields: [releasedById], references: [id], onDelete: SetNull)
+  receivedBack User?           @relation("BorrowingReceiver", fields: [receivedBackById], references: [id], onDelete: SetNull)
+  items        BorrowingItem[]
+
+  @@index([requestNumber])
+  @@index([borrowerIdNumber])
+  @@index([status])
+  @@index([expectedReturnDate])
+  @@map("borrowing_requests")
+}
+
+model BorrowingItem {
+  id                   String         @id @default(uuid())
+  borrowingRequestId   String
+  assetId              String?
+  consumableId         String?
+  quantity             Int            @default(1)
+  conditionOnCheckout  AssetCondition @default(GOOD)
+  conditionOnReturn    AssetCondition?
+  notes                String?
+
+  borrowingRequest BorrowingRequest @relation(fields: [borrowingRequestId], references: [id], onDelete: Cascade)
+  asset            Asset?           @relation(fields: [assetId], references: [id], onDelete: SetNull)
+  consumable       Consumable?      @relation(fields: [consumableId], references: [id], onDelete: SetNull)
+
+  @@index([borrowingRequestId])
+  @@index([assetId])
+  @@map("borrowing_items")
+}
+
+enum GatePassType {
+  REPAIR_OUTSIDE
+  CAMPUS_TRANSFER
+  DISPOSAL_HAUL
+  OFF_CAMPUS_EVENT
+  SUPPLIER_RETURN
+}
+
+enum GatePassStatus {
+  DRAFT
+  HEAD_RECOMMENDED
+  DEAN_APPROVED
+  SECURITY_CHECKED_OUT
+  SECURITY_CHECKED_IN
+  COMPLETED
+  CANCELLED
+}
+
+model GatePass {
+  id                   String         @id @default(uuid())
+  gatePassNumber       String         @unique // e.g., "GP-2026-0019"
+  passType             GatePassType   @default(REPAIR_OUTSIDE)
+  reason               String
+  destinationAddress   String
+  carrierName          String         // Person or logistics driver carrying the items
+  carrierContact       String?
+  vehiclePlateNumber   String?
+  status               GatePassStatus @default(DRAFT)
+  
+  requestedById        String
+  headEndorsedById     String?
+  deanApprovedById     String?
+  securityGuardOutName String?
+  securityGuardInName  String?
+  
+  loggedOutAt          DateTime?      // Timestamp stamped at security guardhouse
+  loggedInAt           DateTime?      // Timestamp return stamped at security guardhouse
+  remarks              String?
+  
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  requestedBy  User           @relation("GatePassRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  headEndorsed User?          @relation("GatePassEndorser", fields: [headEndorsedById], references: [id], onDelete: SetNull)
+  deanApproved User?          @relation("GatePassApprover", fields: [deanApprovedById], references: [id], onDelete: SetNull)
+  items        GatePassItem[]
+
+  @@index([gatePassNumber])
+  @@index([status])
+  @@index([passType])
+  @@map("gate_passes")
+}
+
+model GatePassItem {
+  id              String   @id @default(uuid())
+  gatePassId      String
+  assetId         String?
+  itemDescription String   // Serialized description printed on physical clearance slip
+  serialNumber    String?
+  quantity        Int      @default(1)
+  remarks         String?
+
+  gatePass GatePass @relation(fields: [gatePassId], references: [id], onDelete: Cascade)
+  asset    Asset?   @relation(fields: [assetId], references: [id], onDelete: SetNull)
+
+  @@index([gatePassId])
+  @@index([assetId])
+  @@map("gate_pass_items")
+}
+
+// ------------------------------------------------------------
+// 8. AUTOMATED AUDIT AGENT & WEBHOOK EVENT LOGS
+// ------------------------------------------------------------
+
+enum DiscoveryScanStatus {
+  MATCHED_SYNCED
+  NEW_UNREGISTERED
+  HARDWARE_ALTERED
+  IP_CONFLICT
+  ERROR
+}
+
+model DiscoveryLog {
+  id                  String              @id @default(uuid())
+  agentVersion        String              @default("1.0.0")
+  hostname            String
+  macAddress          String
+  ipAddress           String
+  matchedAssetId      String?
+  scanStatus          DiscoveryScanStatus @default(MATCHED_SYNCED)
+  osVersion           String?
+  cpuInfo             String?
+  ramInfo             String?
+  diskInfo            String?
+  detectedChangesJson Json?               // Specific discrepancies found vs DB record
+  rawPayloadJson      Json                // Entire raw output from PowerShell audit agent
+  loggedAt            DateTime            @default(now())
+
+  matchedAsset Asset? @relation(fields: [matchedAssetId], references: [id], onDelete: SetNull)
+
+  @@index([macAddress])
+  @@index([hostname])
+  @@index([scanStatus])
+  @@index([loggedAt])
+  @@map("discovery_logs")
+}
+
+enum WebhookChannel {
+  DISCORD
+  TELEGRAM
+}
+
+enum WebhookEventType {
+  CRITICAL_INCIDENT
+  LOW_STOCK_THRESHOLD
+  EQUIPMENT_OVERDUE
+  DISCOVERY_TAMPER_ALERT
+  GATE_PASS_SECURITY
+  PREVENTIVE_MAINTENANCE_DUE
+}
+
+model WebhookNotificationLog {
+  id           String           @id @default(uuid())
+  targetChannel WebhookChannel
+  eventType    WebhookEventType
+  referenceId  String?          // e.g., ticketNumber, sku, requestNumber
+  payloadJson  Json
+  responseCode Int?
+  isSuccess    Boolean          @default(false)
+  errorMessage String?
+  triggeredAt  DateTime         @default(now())
+
+  @@index([targetChannel, eventType])
+  @@index([triggeredAt])
+  @@map("webhook_notification_logs")
+}

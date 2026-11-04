@@ -1,0 +1,6 @@
+{
+  "name": "ACLC LabPulse",
+  "description": "Computer Laboratory Asset, Inventory, & Maintenance Management System for ACLC College of Manila",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
