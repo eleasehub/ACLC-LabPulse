@@ -63,14 +63,14 @@ export interface TableAssetItem {
 }
 
 export const INSTITUTIONAL_CATEGORIES = [
-  { id: 'WORKSTATION', label: 'Workstations (PC)', icon: Monitor, color: 'text-cyan-400 bg-cyan-950/60 border-cyan-800/60' },
-  { id: 'NETWORKING_SWITCH', label: 'Network Switches', icon: Network, color: 'text-emerald-400 bg-emerald-950/60 border-emerald-800/60' },
-  { id: 'ROUTER', label: 'Routers & Gateways', icon: Router, color: 'text-sky-400 bg-sky-950/60 border-sky-800/60' },
-  { id: 'SERVER', label: 'Servers & Hosts', icon: Server, color: 'text-purple-400 bg-purple-950/60 border-purple-800/60' },
-  { id: 'PROJECTOR', label: 'Projectors & Displays', icon: Projector, color: 'text-amber-400 bg-amber-950/60 border-amber-800/60' },
-  { id: 'UPS', label: 'UPS Backups', icon: Zap, color: 'text-yellow-400 bg-yellow-950/60 border-yellow-800/60' },
-  { id: 'ACCESS_POINT', label: 'Wireless APs', icon: Wifi, color: 'text-indigo-400 bg-indigo-950/60 border-indigo-800/60' },
-  { id: 'PRINTER_SCANNER', label: 'Peripherals', icon: Printer, color: 'text-slate-300 bg-slate-800 border-slate-700' },
+  { id: 'WORKSTATION', label: 'Workstations', fullLabel: 'Workstations (PC)', icon: Monitor, color: 'text-cyan-400 bg-cyan-950/60 border-cyan-800/60 category-badge-workstation' },
+  { id: 'SERVER', label: 'Servers', fullLabel: 'Servers & Hosts', icon: Server, color: 'text-purple-400 bg-purple-950/60 border-purple-800/60 category-badge-server' },
+  { id: 'NETWORKING_SWITCH', label: 'Switches', fullLabel: 'Network Switches', icon: Network, color: 'text-emerald-400 bg-emerald-950/60 border-emerald-800/60 category-badge-switch' },
+  { id: 'ROUTER', label: 'Routers', fullLabel: 'Routers & Gateways', icon: Router, color: 'text-sky-400 bg-sky-950/60 border-sky-800/60 category-badge-router' },
+  { id: 'ACCESS_POINT', label: 'Wireless APs', fullLabel: 'Wireless Access Points', icon: Wifi, color: 'text-indigo-400 bg-indigo-950/60 border-indigo-800/60 category-badge-ap' },
+  { id: 'PROJECTOR', label: 'Projectors', fullLabel: 'Projectors & Displays', icon: Projector, color: 'text-amber-400 bg-amber-950/60 border-amber-800/60 category-badge-projector' },
+  { id: 'UPS', label: 'UPS Backups', fullLabel: 'UPS Battery Backups', icon: Zap, color: 'text-yellow-400 bg-yellow-950/60 border-yellow-800/60 category-badge-ups' },
+  { id: 'PRINTER_SCANNER', label: 'Peripherals', fullLabel: 'Printers & Peripherals', icon: Printer, color: 'text-teal-400 bg-teal-950/60 border-teal-800/60 category-badge-peripheral' },
 ];
 
 export function AssetDataTable({ onSelectAsset }: { onSelectAsset?: (asset: TableAssetItem) => void }) {
@@ -234,6 +234,24 @@ export function AssetDataTable({ onSelectAsset }: { onSelectAsset?: (asset: Tabl
           purchaseCost: 14500,
         }));
         break;
+      case 'PRINTER_SCANNER':
+        setNewAsset((prev) => ({
+          ...prev,
+          category: 'PRINTER_SCANNER',
+          assetTag: 'ACLC-MNL-LAB1-PRN02',
+          name: 'Department Network Laser Printer',
+          brand: 'HP',
+          model: 'LaserJet Pro MFP 4103fdw',
+          serialNumber: 'HP-MFP-2026',
+          seatCoord: 'Instructor Station / Lab Corner',
+          ipAddress: '192.168.10.7',
+          purchaseCost: 26500,
+          portCount: 'Monochrome Laser / 42 ppm / Auto-Duplex',
+          firmwareVersion: 'Gigabit Ethernet & Dual-Band Wi-Fi',
+          rackUnits: '250-Sheet Paper Tray + 100-Sheet Multipurpose',
+          gpuModel: '50-Sheet Automatic Document Feeder (ADF)',
+        }));
+        break;
       default:
         setNewAsset((prev) => ({
           ...prev,
@@ -297,13 +315,27 @@ export function AssetDataTable({ onSelectAsset }: { onSelectAsset?: (asset: Tabl
   };
 
   const getCategoryDetails = (catId: string) => {
-    const found = INSTITUTIONAL_CATEGORIES.find((c) => c.id === catId);
+    const raw = (catId || '').toUpperCase();
+    if (raw === 'SWITCH' || raw === 'NETWORKING_SWITCH') {
+      return INSTITUTIONAL_CATEGORIES.find((c) => c.id === 'NETWORKING_SWITCH')!;
+    }
+    if (raw === 'ROUTER' || raw === 'GATEWAY') {
+      return INSTITUTIONAL_CATEGORIES.find((c) => c.id === 'ROUTER')!;
+    }
+    if (raw === 'PRINTER' || raw === 'PRINTER_SCANNER' || raw === 'PERIPHERAL') {
+      return INSTITUTIONAL_CATEGORIES.find((c) => c.id === 'PRINTER_SCANNER')!;
+    }
+    if (raw === 'AP' || raw === 'ACCESS_POINT' || raw === 'WIFI') {
+      return INSTITUTIONAL_CATEGORIES.find((c) => c.id === 'ACCESS_POINT')!;
+    }
+    const found = INSTITUTIONAL_CATEGORIES.find((c) => c.id === raw);
     if (found) return found;
     return {
       id: catId,
       label: catId,
+      fullLabel: catId,
       icon: Monitor,
-      color: 'text-slate-300 bg-slate-800 border-slate-700',
+      color: 'text-slate-300 bg-slate-800 border-slate-700 category-badge-workstation',
     };
   };
 
@@ -321,6 +353,8 @@ export function AssetDataTable({ onSelectAsset }: { onSelectAsset?: (asset: Tabl
       finalCpuRam = `${newAsset.vaRating} / ${newAsset.outletCount} / ${newAsset.batteryType}`;
     } else if (newAsset.category === 'ACCESS_POINT') {
       finalCpuRam = `${newAsset.wifiStandard} / 802.3at PoE+`;
+    } else if (newAsset.category === 'PRINTER_SCANNER') {
+      finalCpuRam = `${newAsset.portCount} / ${newAsset.firmwareVersion} / ${newAsset.rackUnits} / ${newAsset.gpuModel}`;
     } else {
       finalCpuRam = `${newAsset.cpuProcessor} / ${newAsset.ramCapacityGb}GB RAM / ${newAsset.storageCapacityGb}GB ${newAsset.storageType} / ${newAsset.gpuModel}`;
     }
@@ -407,8 +441,21 @@ export function AssetDataTable({ onSelectAsset }: { onSelectAsset?: (asset: Tabl
         const matchesStatus =
           statusFilter === 'ALL' || item.status === statusFilter;
 
-        const matchesCategory =
-          categoryFilter === 'ALL' || item.category === categoryFilter;
+        const rawCategory = (item.category || '').toUpperCase();
+        let matchesCategory = false;
+        if (categoryFilter === 'ALL') {
+          matchesCategory = true;
+        } else if (categoryFilter === 'NETWORKING_SWITCH') {
+          matchesCategory = rawCategory === 'NETWORKING_SWITCH' || rawCategory === 'SWITCH';
+        } else if (categoryFilter === 'PRINTER_SCANNER') {
+          matchesCategory = rawCategory === 'PRINTER_SCANNER' || rawCategory === 'PERIPHERAL' || rawCategory === 'PRINTER';
+        } else if (categoryFilter === 'ACCESS_POINT') {
+          matchesCategory = rawCategory === 'ACCESS_POINT' || rawCategory === 'AP';
+        } else if (categoryFilter === 'ROUTER') {
+          matchesCategory = rawCategory === 'ROUTER' || rawCategory === 'GATEWAY';
+        } else {
+          matchesCategory = rawCategory === categoryFilter;
+        }
 
         const matchesCondition =
           conditionFilter === 'ALL' || item.condition === conditionFilter;
@@ -627,7 +674,7 @@ export function AssetDataTable({ onSelectAsset }: { onSelectAsset?: (asset: Tabl
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs scrollbar-thin">
         <button
           onClick={() => setCategoryFilter('ALL')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-semibold transition-all cursor-pointer whitespace-nowrap ${
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl font-semibold transition-all cursor-pointer whitespace-nowrap text-xs ${
             categoryFilter === 'ALL'
               ? 'bg-cyan-600 text-white shadow-md'
               : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800 hover:border-slate-700'
@@ -635,20 +682,33 @@ export function AssetDataTable({ onSelectAsset }: { onSelectAsset?: (asset: Tabl
         >
           <Layers className="w-3.5 h-3.5" />
           <span>All Categories</span>
-          <span className="text-[10px] px-1.5 py-0.2 rounded bg-black/30 font-mono">
+          <span
+            className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold transition-colors ${
+              categoryFilter === 'ALL'
+                ? 'bg-white/20 text-white'
+                : 'bg-slate-800 text-slate-300'
+            }`}
+          >
             {assets.length}
           </span>
         </button>
 
         {INSTITUTIONAL_CATEGORIES.map((cat) => {
           const Icon = cat.icon;
-          const count = assets.filter((a) => a.category === cat.id).length;
+          const count = assets.filter((a) => {
+            const raw = (a.category || '').toUpperCase();
+            if (cat.id === 'NETWORKING_SWITCH') return raw === 'NETWORKING_SWITCH' || raw === 'SWITCH';
+            if (cat.id === 'PRINTER_SCANNER') return raw === 'PRINTER_SCANNER' || raw === 'PERIPHERAL' || raw === 'PRINTER';
+            if (cat.id === 'ACCESS_POINT') return raw === 'ACCESS_POINT' || raw === 'AP';
+            if (cat.id === 'ROUTER') return raw === 'ROUTER' || raw === 'GATEWAY';
+            return raw === cat.id;
+          }).length;
           const isSelected = categoryFilter === cat.id;
           return (
             <button
               key={cat.id}
               onClick={() => setCategoryFilter(cat.id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-semibold transition-all cursor-pointer whitespace-nowrap ${
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl font-semibold transition-all cursor-pointer whitespace-nowrap text-xs ${
                 isSelected
                   ? 'bg-cyan-600 text-white shadow-md'
                   : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800 hover:border-slate-700'
@@ -656,7 +716,13 @@ export function AssetDataTable({ onSelectAsset }: { onSelectAsset?: (asset: Tabl
             >
               <Icon className="w-3.5 h-3.5" />
               <span>{cat.label}</span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded bg-black/30 font-mono">
+              <span
+                className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold transition-colors ${
+                  isSelected
+                    ? 'bg-white/20 text-white'
+                    : 'bg-slate-800 text-slate-300'
+                }`}
+              >
                 {count}
               </span>
             </button>
@@ -688,6 +754,30 @@ export function AssetDataTable({ onSelectAsset }: { onSelectAsset?: (asset: Tabl
 
         {/* Dropdowns Filter Cluster */}
         <div className="flex flex-wrap items-center gap-2">
+          {/* Category Dropdown Filter */}
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-300 focus:outline-none focus:border-cyan-500 cursor-pointer"
+          >
+            <option value="ALL">All Categories ({assets.length})</option>
+            {INSTITUTIONAL_CATEGORIES.map((cat) => {
+              const count = assets.filter((a) => {
+                const raw = (a.category || '').toUpperCase();
+                if (cat.id === 'NETWORKING_SWITCH') return raw === 'NETWORKING_SWITCH' || raw === 'SWITCH';
+                if (cat.id === 'PRINTER_SCANNER') return raw === 'PRINTER_SCANNER' || raw === 'PERIPHERAL' || raw === 'PRINTER';
+                if (cat.id === 'ACCESS_POINT') return raw === 'ACCESS_POINT' || raw === 'AP';
+                if (cat.id === 'ROUTER') return raw === 'ROUTER' || raw === 'GATEWAY';
+                return raw === cat.id;
+              }).length;
+              return (
+                <option key={cat.id} value={cat.id}>
+                  {cat.label} ({count})
+                </option>
+              );
+            })}
+          </select>
+
           {/* Room Filter */}
           <select
             value={labFilter}
@@ -1570,12 +1660,59 @@ export function AssetDataTable({ onSelectAsset }: { onSelectAsset?: (asset: Tabl
                   </div>
                 )}
 
-                {/* Case 5: Workstations, Servers, & Generic Peripherals */}
+                {/* Case 5: Printers & Peripherals */}
+                {newAsset.category === 'PRINTER_SCANNER' && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-slate-400 block mb-1">Print Technology & Speed</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Monochrome Laser / 42 ppm / Auto-Duplex"
+                        value={newAsset.portCount}
+                        onChange={(e) => setNewAsset({ ...newAsset, portCount: e.target.value })}
+                        className="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono focus:outline-none focus:border-cyan-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-slate-400 block mb-1">Network & Connectivity Interfaces</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Gigabit Ethernet, Wi-Fi Direct, USB 2.0"
+                        value={newAsset.firmwareVersion}
+                        onChange={(e) => setNewAsset({ ...newAsset, firmwareVersion: e.target.value })}
+                        className="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono focus:outline-none focus:border-cyan-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-slate-400 block mb-1">Paper Tray & Media Handling</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. 250-sheet tray + 100-sheet multipurpose"
+                        value={newAsset.rackUnits}
+                        onChange={(e) => setNewAsset({ ...newAsset, rackUnits: e.target.value })}
+                        className="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono focus:outline-none focus:border-cyan-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-slate-400 block mb-1">Scanner & Functionality</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. 50-sheet Dual-Scan DADF / Thermal Barcode Engine"
+                        value={newAsset.gpuModel}
+                        onChange={(e) => setNewAsset({ ...newAsset, gpuModel: e.target.value })}
+                        className="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono focus:outline-none focus:border-cyan-500"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Case 6: Workstations, Servers, & Generic Systems */}
                 {newAsset.category !== 'PROJECTOR' &&
                   newAsset.category !== 'ROUTER' &&
                   newAsset.category !== 'NETWORKING_SWITCH' &&
                   newAsset.category !== 'UPS' &&
-                  newAsset.category !== 'ACCESS_POINT' && (
+                  newAsset.category !== 'ACCESS_POINT' &&
+                  newAsset.category !== 'PRINTER_SCANNER' && (
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="text-slate-400 block mb-1">Processor (CPU)</label>
